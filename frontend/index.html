@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartDoc</title>
+  <style>
+    :root { font: 16px/1.5 system-ui, sans-serif; color: #17212b; background: #f5f7fa; }
+    body { margin: 0; } main { max-width: 780px; margin: 48px auto; padding: 0 20px; }
+    h1 { margin-bottom: 4px; } .sub { color: #526273; margin-top: 0; }
+    .card { background: white; border: 1px solid #d9e0e8; border-radius: 12px; padding: 22px; margin: 20px 0; }
+    #drop { border: 2px dashed #9aabba; border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; }
+    #drop.drag { background: #edf5ff; border-color: #2766a5; }
+    button, .download { border: 0; border-radius: 7px; padding: 10px 14px; background: #185a92; color: white; cursor: pointer; font: inherit; text-decoration: none; }
+    button:disabled { opacity: .5; cursor: default; } ul { padding-left: 20px; } li { margin: 8px 0; }
+    #status { min-height: 1.5em; color: #526273; } .error { color: #a32626 !important; }
+  </style>
+</head>
+<body><main>
+  <h1>SmartDoc</h1>
+  <p class="sub">Upload Excel, CSV, Word, or text files to get started.</p>
+  <section class="card">
+    <div id="drop" tabindex="0" role="button" aria-label="Choose or drop files">
+      <strong>Drop files here</strong><br>or click to browse · up to 20 MB per file
+      <input id="picker" type="file" multiple accept=".xlsx,.csv,.docx,.txt" hidden>
+    </div>
+    <ul id="files"></ul>
+    <p id="status" aria-live="polite">Starting a secure upload session…</p>
+  </section>
+  <p class="sub">Command editing and agent tools arrive in the next build milestone.</p>
+</main>
+<script>
+  const drop = document.querySelector('#drop');
+  const picker = document.querySelector('#picker');
+  const list = document.querySelector('#files');
+  const status = document.querySelector('#status');
+  let sessionId;
+
+  async function request(path, options = {}) {
+    const response = await fetch(path, options);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `Request failed (${response.status})`);
+    }
+    return response.status === 204 ? null : response.json();
+  }
+  async function start() {
+    try {
+      sessionId = (await request('/api/sessions', { method: 'POST' })).session_id;
+      status.textContent = 'Session ready. Choose or drop files to upload.';
+    } catch (error) { status.textContent = error.message; status.classList.add('error'); }
+  }
+  drop.addEventListener('click', () => picker.click());
+  drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') picker.click(); });
+  drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('drag'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+  drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('drag'); upload(event.dataTransfer.files); });
+  picker.addEventListener('change', () => { upload(picker.files); picker.value = ''; });
+
+  async function upload(files) {
+    if (!sessionId || !files.length) return;
+    status.classList.remove('error'); status.textContent = `Uploading ${files.length} file(s)…`;
+    const data = new FormData();
+    for (const file of files) data.append('files', file);
+    try {
+      const result = await request(`/api/sessions/${sessionId}/files`, { method: 'POST', body: data });
+      for (const file of result.files) {
+        const item = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = `/api/sessions/${sessionId}/files/${file.file_id}/download`;
+        link.className = 'download'; link.textContent = 'Download';
+        item.append(document.createTextNode(`${file.file_name} · ${(file.size / 1024).toFixed(1)} KB `), link);
+        list.append(item);
+      }
+      status.textContent = 'Upload complete.';
+    } catch (error) { status.textContent = error.message; status.classList.add('error'); }
+  }
+  start();
+</script>
+</body></html>
