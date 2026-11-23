@@ -31,7 +31,11 @@ def test_upload_list_download_and_delete(client: TestClient):
     uploaded = response.json()["files"][0]
     assert uploaded["file_name"] == "report.txt"
     assert uploaded["size"] == 5
-    assert client.get(f"/api/sessions/{session_id}/files").json()["files"] == [uploaded]
+    listed = client.get(f"/api/sessions/{session_id}/files").json()["files"]
+    assert len(listed) == 1
+    assert {key: listed[0][key] for key in uploaded} == uploaded
+    assert listed[0]["is_current"] is True
+    assert listed[0]["is_output"] is False
 
     download = client.get(
         f"/api/sessions/{session_id}/files/{uploaded['file_id']}/download"
@@ -44,6 +48,42 @@ def test_upload_list_download_and_delete(client: TestClient):
     assert client.delete(f"/api/sessions/{session_id}").status_code == 204
     assert not directory.exists()
     assert client.get(f"/api/sessions/{session_id}/files").status_code == 404
+
+
+def test_remove_selected_file_keeps_other_uploads(client: TestClient):
+    session_id = create_session(client)
+    response = client.post(
+        f"/api/sessions/{session_id}/files",
+        files=[
+            ("files", ("first.xlsx", b"first", "application/octet-stream")),
+            ("files", ("second.csv", b"second", "text/csv")),
+        ],
+    )
+    assert response.status_code == 201
+    first, second = response.json()["files"]
+    first_path = main.sessions[session_id].files[first["file_id"]].path
+
+    deleted = client.delete(f"/api/sessions/{session_id}/files/{first['file_id']}")
+    assert deleted.status_code == 200
+    assert deleted.json()["status"] == "deleted"
+    assert not first_path.exists()
+    assert client.get(f"/api/sessions/{session_id}/files/{first['file_id']}/download").status_code == 404
+    remaining = client.get(f"/api/sessions/{session_id}/files").json()["files"]
+    assert [item["file_id"] for item in remaining] == [second["file_id"]]
+    assert client.get(f"/api/sessions/{session_id}/files/{second['file_id']}/download").content == b"second"
+
+
+def test_cannot_remove_file_during_active_command(client: TestClient):
+    session_id = create_session(client)
+    uploaded = client.post(
+        f"/api/sessions/{session_id}/files",
+        files=[("files", ("first.csv", b"a\n1\n", "text/csv"))],
+    ).json()["files"][0]
+    main.sessions[session_id].active_command_id = "in-progress"
+    response = client.delete(f"/api/sessions/{session_id}/files/{uploaded['file_id']}")
+    assert response.status_code == 409
+    main.sessions[session_id].active_command_id = None
+    assert client.get(f"/api/sessions/{session_id}/files").json()["files"][0]["file_id"] == uploaded["file_id"]
 
 
 def test_filename_is_sanitized_and_storage_is_isolated(client: TestClient):
@@ -111,5 +151,19 @@ def test_expired_session_is_removed(client: TestClient):
 
 def test_home_page_and_health_endpoint(client: TestClient):
     assert client.get("/").status_code == 200
-    assert "Drop files here" in client.get("/").text
+    assert "Drop Excel, CSV, or Word files here" in client.get("/").text
     assert client.get("/api/health").json() == {"status": "ok"}
+
+
+def test_standalone_file_page_origin_can_reach_api(client: TestClient):
+    response = client.options(
+        "/api/sessions",
+        headers={
+            "Origin": "null",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "null"
+    assert "POST" in response.headers["access-control-allow-methods"]

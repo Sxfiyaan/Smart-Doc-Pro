@@ -1,21 +1,9 @@
-from langchain_ollama import ChatOllama
+"""Backward-compatible ASGI entry point for SmartDoc.
 
-from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+Use either ``uvicorn backend.main:app`` or the earlier project command
+``uvicorn app.main:app``. Both names expose the same API and routes.
+"""
 
+from backend.main import app
 
-print("Ollama URL   :", OLLAMA_BASE_URL)
-print("Ollama Model :", OLLAMA_MODEL)
-
-
-llm = ChatOllama(
-    model=OLLAMA_MODEL,
-    base_url=OLLAMA_BASE_URL,
-    temperature=0
-)
-
-response = llm.invoke(
-    "Explain what an Excel spreadsheet is in one sentence."
-)
-
-print("\nModel response:")
-print(response.content)
+__all__ = ["app"]

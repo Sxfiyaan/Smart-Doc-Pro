@@ -3,77 +3,491 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SmartDoc</title>
+  <title>SmartDoc · Spreadsheet assistant</title>
   <style>
-    :root { font: 16px/1.5 system-ui, sans-serif; color: #17212b; background: #f5f7fa; }
-    body { margin: 0; } main { max-width: 780px; margin: 48px auto; padding: 0 20px; }
-    h1 { margin-bottom: 4px; } .sub { color: #526273; margin-top: 0; }
-    .card { background: white; border: 1px solid #d9e0e8; border-radius: 12px; padding: 22px; margin: 20px 0; }
-    #drop { border: 2px dashed #9aabba; border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; }
-    #drop.drag { background: #edf5ff; border-color: #2766a5; }
-    button, .download { border: 0; border-radius: 7px; padding: 10px 14px; background: #185a92; color: white; cursor: pointer; font: inherit; text-decoration: none; }
-    button:disabled { opacity: .5; cursor: default; } ul { padding-left: 20px; } li { margin: 8px 0; }
-    #status { min-height: 1.5em; color: #526273; } .error { color: #a32626 !important; }
+    :root { color-scheme: light; font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; color: #1d2939; background: #f5f7ff; --accent-start:#4f46e5; --accent-end:#6d28d9; --accent-soft:#eef2ff; --accent-border:#c7d2fe; }
+    * { box-sizing: border-box; } body { margin: 0; min-height:100vh; background:linear-gradient(135deg,#f8faff 0%,#f5f3ff 52%,#eef6ff 100%); } main { max-width: 1040px; margin: 38px auto; padding: 0 22px 60px; }
+    header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; padding:18px 20px; border:1px solid #e5e7ff; border-radius:16px; background:linear-gradient(115deg,#eef2ff 0%,#f3f0ff 52%,#eff6ff 100%); box-shadow:0 8px 24px #4338ca0a; }
+    h1 { font-size:25px; margin:0; letter-spacing:-.03em; background:linear-gradient(100deg,#4338ca,#6d28d9); color:transparent; background-clip:text; -webkit-background-clip:text; } h2 { font-size:17px; margin:0 0 14px; }
+    .muted { color:#667085; } .card { background:rgba(255,255,255,.94); border:1px solid #e5e7eb; border-radius:14px; padding:22px; margin:16px 0; box-shadow:0 4px 16px #28315a0a; }
+    #drop { border:1.5px dashed #b8c2e5; border-radius:10px; text-align:center; padding:24px; cursor:pointer; background:linear-gradient(135deg,#fafbff,#f8f6ff); transition:background .18s ease,border-color .18s ease; }
+    #drop.drag { background:linear-gradient(120deg,#eef2ff,#f3e8ff); border-color:#7c3aed; } button,.download { border:0; border-radius:8px; padding:10px 14px; color:white; background:linear-gradient(110deg,var(--accent-start),var(--accent-end)); font:inherit; cursor:pointer; text-decoration:none; display:inline-block; box-shadow:0 2px 6px #4f46e526; transition:filter .15s ease,transform .15s ease; }
+    button:hover,.download:hover { filter:brightness(1.06); transform:translateY(-1px); }
+    button.secondary { color:#344054; background:#edf0f3; } button.danger { background:#a93232; } button:disabled { opacity:.5; cursor:wait; }
+    .file-item { display:flex; align-items:center; justify-content:space-between; gap:12px; list-style:none; margin:8px 0; padding:9px 10px; background:#f7f9fb; border-radius:8px; }
+    .file-item button { padding:6px 10px; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; } .chip { background:linear-gradient(120deg,#f5f6ff,#faf7ff); color:#4338ca; border:1px solid #e0e4ff; padding:7px 10px; border-radius:99px; cursor:pointer; }
+    textarea { width:100%; min-height:92px; resize:vertical; padding:12px; border:1px solid #cfd7df; border-radius:9px; font:inherit; }
+    .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; } .row.space { justify-content:space-between; }
+    ul { padding-left:20px; margin-bottom:0; } li { margin:7px 0; } .status { min-height:24px; color:#667085; margin:10px 0 0; } .error { color:#a12b2b; }
+    .log { display:grid; gap:8px; } .log-item { padding:9px 11px; background:#f7f9fb; border-radius:8px; } .log-item strong { margin-right:8px; }
+    .file-output { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #edf0f2; }
+    #chat-log { display:grid; gap:12px; max-height:420px; overflow:auto; padding:6px 2px 16px; }
+    .message { max-width:88%; padding:12px 14px; border-radius:13px; white-space:pre-wrap; }
+    .message.assistant { justify-self:start; background:#f1f5f9; border:1px solid #e5eaf0; }
+    .message.user { justify-self:end; background:linear-gradient(120deg,var(--accent-start),var(--accent-end)); color:#fff; border:1px solid #5940d4; }
+    .message.error { color:#a12b2b; background:#fff5f5; border-color:#f1caca; }
+    .profile-file { padding:14px 0; border-top:1px solid #edf0f2; }
+    .preview-sheet { margin:14px 0 20px; overflow:auto; } table { border-collapse:collapse; font-size:13px; min-width:60%; } th,td { border:1px solid #dce2e8; padding:7px 9px; text-align:left; white-space:nowrap; } th { background:#f1f5f9; }
+    .workspace-card { position:relative; overflow:hidden; border-color:#e4e7f4; background:rgba(255,255,255,.96); box-shadow:0 10px 28px #3540740b; }
+    .section-heading { display:flex; align-items:center; gap:13px; margin-bottom:18px; }
+    .section-icon { width:42px; height:42px; flex:0 0 42px; display:grid; place-items:center; color:#5145c5; border:1px solid #e0e4ff; border-radius:13px; background:linear-gradient(140deg,#eef2ff,#f5edff); }
+    .section-icon svg { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+    .section-heading h2 { margin:0; font-size:17px; letter-spacing:-.01em; }
+    .section-kicker { display:block; color:#7169b5; font-size:10px; font-weight:750; letter-spacing:.12em; text-transform:uppercase; }
+    .section-description { margin:2px 0 0; color:#7a8497; font-size:13px; }
+    .drop-inner { display:grid; justify-items:center; gap:8px; max-width:520px; margin:auto; }
+    .upload-orb { width:50px; height:50px; display:grid; place-items:center; color:#594bc9; border-radius:16px; background:linear-gradient(145deg,#e8edff,#f2e8ff); box-shadow:inset 0 0 0 1px #e3e3ff; }
+    .upload-orb svg { width:24px; height:24px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+    #drop { padding:28px 20px; border-color:#c6cbed; border-radius:14px; }
+    #drop br { display:none; }
+    #drop strong { color:#303b63; font-size:15px; }
+    .file-types { color:#7c879a; font-size:12px; }
+    #files { padding:0; }
+    .file-item { border:1px solid #e8ebf4; background:linear-gradient(110deg,#fafbff,#fff); }
+    #inspection-card { background:linear-gradient(145deg,#fff 0%,#fbfaff 100%); }
+    #file-profiles { border:1px solid #e9eaf5; border-radius:12px; padding:0 14px; background:#fff; }
+    .profile-file:first-child { border-top:0; }
+    #chat-card { border-color:#deddf8; background:linear-gradient(145deg,#fff 20%,#faf9ff 100%); }
+    .agent-state { margin-left:auto; display:inline-flex; align-items:center; gap:7px; padding:5px 9px; color:#555d78; border:1px solid #e4e6f3; border-radius:99px; background:#fff; font-size:11px; font-weight:650; white-space:nowrap; }
+    .agent-dot { width:7px; height:7px; border-radius:50%; background:#29a881; box-shadow:0 0 0 3px #dff6ed; }
+    #chat-log { min-height:64px; max-height:380px; margin-bottom:12px; padding:14px; border:1px solid #e7e8f4; border-radius:14px; background:linear-gradient(140deg,#f8f9ff,#fbf8ff); }
+    .message.assistant { background:#fff; border-color:#e7e8f0; box-shadow:0 2px 8px #242a4508; }
+    #command { min-height:104px; border-color:#d9dcef; background:#fff; box-shadow:0 3px 12px #343c7208; }
+    #command:focus { outline:3px solid #e9e7ff; border-color:#8b80e6; }
+    #command-status { margin-top:7px; }
+    #result-card { border-color:#d9e9e5; background:linear-gradient(145deg,#fff 0%,#f7fcfa 100%); }
+    #result-card > h2 { display:flex; align-items:center; gap:9px; }
+    #result-card > h2::before { content:'✓'; width:27px; height:27px; display:grid; place-items:center; color:#168267; border-radius:9px; background:linear-gradient(145deg,#d9f7ec,#e6f0ff); font-size:15px; }
+    #summary { color:#344054; }
+    #usage-card { border-color:#e4e2f4; background:linear-gradient(145deg,#fff 0%,#faf9ff 100%); }
+    .usage-total { margin:0 0 6px; color:#29324b; font-weight:700; }
+    .usage-note { margin:0 0 14px; color:#667085; font-size:12px; }
+    .usage-call { padding:12px 0; border-top:1px solid #ebeaf4; }
+    .usage-call > strong { display:block; color:#3b4260; }
+    .usage-call > span { display:block; margin-top:3px; color:#667085; font-size:12px; }
+    .usage-parts { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .usage-part { padding:4px 8px; border-radius:99px; color:#554d91; background:#f0effb; font-size:11px; }
+    .file-output { margin:8px 0; padding:13px 14px; border:1px solid #e1ebe7; border-radius:11px; background:rgba(255,255,255,.85); }
+    #preview { margin-top:18px; padding-top:6px; border-top:1px solid #e7efec; }
+    #preview .profile-file { border-top:0; }
+    #activity-card { border-color:#e6e5f3; background:linear-gradient(145deg,#fff,#faf9ff); }
+    dialog { max-width:min(620px, calc(100% - 30px)); border:0; border-radius:14px; padding:0; box-shadow:0 18px 70px #10182855; } dialog::backdrop { background:#10182888; }
+    .dialog-body { padding:23px; } .confirmation-summary { background:#fff7ed; border:1px solid #fed7aa; border-radius:9px; padding:11px 12px; color:#7c2d12; } .confirmation-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:9px; margin:14px 0; } .confirmation-fact { background:#f7f9fb; border-radius:8px; padding:9px 10px; } .confirmation-fact span { display:block; color:#667085; font-size:12px; } .confirmation-preview { max-height:280px; overflow:auto; border:1px solid #e2e7ec; border-radius:8px; } .confirmation-preview table { width:100%; min-width:0; } .confirmation-preview td,.confirmation-preview th { max-width:180px; overflow:hidden; text-overflow:ellipsis; } .confirmation-note { margin:12px 0; color:#667085; font-size:13px; }
+    @media(max-width:600px) { main { margin-top:20px; padding:0 14px 40px; } .card { padding:16px; } header { align-items:flex-start; } .agent-state { margin-left:0; } .section-heading { gap:10px; flex-wrap:wrap; } .section-icon { width:38px; height:38px; flex-basis:38px; } }
   </style>
 </head>
 <body><main>
-  <h1>SmartDoc</h1>
-  <p class="sub">Upload Excel, CSV, Word, or text files to get started.</p>
-  <section class="card">
-    <div id="drop" tabindex="0" role="button" aria-label="Choose or drop files">
-      <strong>Drop files here</strong><br>or click to browse · up to 20 MB per file
-      <input id="picker" type="file" multiple accept=".xlsx,.csv,.docx,.txt" hidden>
-    </div>
-    <ul id="files"></ul>
-    <p id="status" aria-live="polite">Starting a secure upload session…</p>
-  </section>
-  <p class="sub">Command editing and agent tools arrive in the next build milestone.</p>
-</main>
-<script>
-  const drop = document.querySelector('#drop');
-  const picker = document.querySelector('#picker');
-  const list = document.querySelector('#files');
-  const status = document.querySelector('#status');
-  let sessionId;
+  <header><div><h1>SmartDoc</h1><div class="muted">Edit spreadsheets and Word documents with plain English</div></div><button id="undo" class="secondary" disabled>Undo last command</button></header>
 
-  async function request(path, options = {}) {
-    const response = await fetch(path, options);
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.detail || `Request failed (${response.status})`);
+  <section class="card workspace-card upload-card">
+    <div class="section-heading"><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></span><div><span class="section-kicker">Step 01 · Upload</span><h2>Add your files</h2><p class="section-description">Start with one or more spreadsheets or Word documents.</p></div></div>
+    <div id="drop" tabindex="0" role="button" aria-label="Choose or drop Excel, CSV, or Word files">
+      <div class="drop-inner"><span class="upload-orb" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></span>
+      <strong>Drop Excel, CSV, or Word files here</strong><br><span class="muted">or use Add files · 20 MB per file</span>
+      <span class="file-types">Your files are inspected in a private session.</span></div>
+      <input id="picker" type="file" multiple accept=".xlsx,.csv,.docx" hidden>
+    </div>
+    <div class="row" style="margin-top:13px"><button id="add-files" class="secondary" type="button">Add more files</button><span class="muted">Your originals stay untouched.</span></div>
+    <ul id="files"></ul><p id="upload-status" class="status" aria-live="polite">Starting session…</p>
+  </section>
+
+  <section class="card workspace-card" id="inspection-card" hidden>
+    <div class="section-heading"><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3.75h7l4 4V20a1.25 1.25 0 0 1-1.25 1.25h-9.5A1.25 1.25 0 0 1 6 20V5a1.25 1.25 0 0 1 1-1.25Z"/><path d="M14 4v4h4M9 13h6M9 16.5h6"/></svg></span><div><span class="section-kicker">Your workspace</span><h2>File profile</h2><p class="section-description">SmartDoc maps the structure before making changes.</p></div></div>
+    <div id="file-profiles"></div>
+  </section>
+
+  <section class="card workspace-card" id="chat-card" hidden>
+    <div class="section-heading"><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/></svg></span><div><span class="section-kicker">AI workspace</span><h2>Chat with SmartDoc</h2><p class="section-description">Describe the result you want. SmartDoc will plan and apply it.</p></div><span class="agent-state"><span class="agent-dot"></span>Agent ready</span></div>
+    <div id="chat-log" role="log" aria-live="polite"></div>
+    <div class="chips">
+      <button class="chip" type="button">Merge all files</button>
+      <button class="chip" type="button">Remove duplicate rows across all columns</button>
+      <button class="chip" type="button">Sort by the first column ascending</button>
+      <button class="chip" type="button">Explain what this file contains</button>
+    </div>
+    <textarea id="command" placeholder="Ask about your workbook or tell SmartDoc what to change…"></textarea>
+    <div class="row space" style="margin-top:12px"><span class="muted">You will review destructive changes before they run.</span><button id="run">Send to SmartDoc</button></div>
+    <p id="command-status" class="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card workspace-card" id="result-card" hidden>
+    <h2>Your updated files</h2><p id="summary"></p><div id="outputs"></div><div id="preview"></div>
+  </section>
+
+  <section class="card workspace-card" id="usage-card" hidden>
+    <h2>Groq request usage</h2><p class="usage-total" id="usage-total"></p>
+    <p class="usage-note">Provider token totals are exact. Prompt component token counts are approximate, based on text size.</p>
+    <div id="usage-requests"></div>
+  </section>
+
+  <section class="card" id="activity-card" hidden><h2>Activity</h2><div class="log" id="activity"></div></section>
+</main>
+
+<dialog id="confirm-dialog">
+  <div class="dialog-body"><h2 id="confirm-title">Confirm change</h2><p id="confirm-detail"></p>
+    <div id="confirm-content"></div>
+    <p class="confirmation-note">This will create an edited copy. Your original upload will stay unchanged, and you can undo the result afterward.</p>
+    <div class="row" style="justify-content:flex-end"><button class="secondary" id="cancel-action">Cancel</button><button class="danger" id="confirm-action">Confirm and continue</button></div>
+  </div>
+</dialog>
+
+<script>
+  const $ = selector => document.querySelector(selector);
+  const picker = $('#picker'), drop = $('#drop');
+  let sessionId = null, pendingConfirmation = null;
+  let activeAssistantMessage = null;
+  const configuredApiOrigin = new URLSearchParams(location.search).get('api');
+  const isBackendPage = ['localhost', '127.0.0.1'].includes(location.hostname) && location.port === '8000';
+  const apiOrigin = (configuredApiOrigin || (isBackendPage ? '' : 'http://127.0.0.1:8000')).replace(/\/+$/, '');
+  const apiUrl = path => `${apiOrigin}${path}`;
+
+  async function api(path, options = {}) {
+    let response;
+    try { response = await fetch(apiUrl(path), options); }
+    catch (error) {
+      throw new Error(`Cannot reach SmartDoc at ${apiOrigin || location.origin}. Start the backend with "uvicorn backend.main:app --reload" or open http://127.0.0.1:8000. (${error.message})`);
     }
-    return response.status === 204 ? null : response.json();
+    const body = response.status === 204 ? null : await response.json().catch(() => ({}));
+    if (!response.ok && response.status === 403) {
+      throw new Error(`The backend rejected this page origin (${location.origin}). Open http://127.0.0.1:8000 or add the preview origin to SMARTDOC_ALLOWED_ORIGINS, then restart the backend.`);
+    }
+    if (!response.ok) throw new Error(body?.detail || `Request failed (${response.status})`);
+    return body;
+  }
+  function setStatus(element, message, error = false) {
+    element.textContent = message; element.classList.toggle('error', error);
   }
   async function start() {
     try {
-      sessionId = (await request('/api/sessions', { method: 'POST' })).session_id;
-      status.textContent = 'Session ready. Choose or drop files to upload.';
-    } catch (error) { status.textContent = error.message; status.classList.add('error'); }
+      const result = await api('/api/sessions', { method:'POST' });
+      sessionId = result.session_id;
+      setStatus($('#upload-status'), 'Session ready. Upload .xlsx or .csv files to begin.');
+    } catch (error) { setStatus($('#upload-status'), error.message, true); }
   }
   drop.addEventListener('click', () => picker.click());
+  $('#add-files').addEventListener('click', () => picker.click());
   drop.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') picker.click(); });
   drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('drag'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
   drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('drag'); upload(event.dataTransfer.files); });
   picker.addEventListener('change', () => { upload(picker.files); picker.value = ''; });
+  $('#files').addEventListener('click', event => {
+    const button = event.target.closest('[data-remove-file]');
+    if (button) removeFile(button.closest('[data-file-id]'));
+  });
+  document.querySelectorAll('.chip').forEach(chip => chip.addEventListener('click', () => { $('#command').value = chip.textContent; $('#command').focus(); }));
 
   async function upload(files) {
     if (!sessionId || !files.length) return;
-    status.classList.remove('error'); status.textContent = `Uploading ${files.length} file(s)…`;
-    const data = new FormData();
-    for (const file of files) data.append('files', file);
+    const data = new FormData(); for (const file of files) data.append('files', file);
+    setStatus($('#upload-status'), `Uploading ${files.length} file(s)…`);
     try {
-      const result = await request(`/api/sessions/${sessionId}/files`, { method: 'POST', body: data });
-      for (const file of result.files) {
-        const item = document.createElement('li');
-        const link = document.createElement('a');
-        link.href = `/api/sessions/${sessionId}/files/${file.file_id}/download`;
-        link.className = 'download'; link.textContent = 'Download';
-        item.append(document.createTextNode(`${file.file_name} · ${(file.size / 1024).toFixed(1)} KB `), link);
-        list.append(item);
+      const result = await api(`/api/sessions/${sessionId}/files`, { method:'POST', body:data });
+      await refreshFileList();
+      setStatus($('#upload-status'), 'Upload complete. Reviewing your files…');
+      await refreshInspection();
+      setStatus($('#upload-status'), 'Upload complete. SmartDoc has reviewed the workbook structure.');
+    } catch (error) { setStatus($('#upload-status'), error.message, true); }
+  }
+  async function refreshFileList() {
+    const result = await api(`/api/sessions/${sessionId}/files`);
+    const root = $('#files'); root.replaceChildren();
+    for (const file of result.files.filter(item => item.is_current)) {
+      const li = document.createElement('li'); li.className='file-item';
+      li.dataset.fileId=file.file_id; li.dataset.fileName=file.file_name;
+      const label = document.createElement('span');
+      label.textContent = `${file.file_name} · ${(file.size / 1024).toFixed(1)} KB${file.is_output ? ' · edited' : ''}`;
+      const actions = document.createElement('div'); actions.className='row';
+      const download = document.createElement('a'); download.className='download';
+      download.href=apiUrl(`/api/sessions/${sessionId}/files/${file.file_id}/download`);
+      download.textContent='Download'; download.setAttribute('aria-label', `Download ${file.file_name}`);
+      actions.append(download);
+      if (!file.is_output) {
+        const remove = document.createElement('button'); remove.type='button'; remove.className='secondary';
+        remove.dataset.removeFile='true'; remove.textContent='Remove';
+        remove.setAttribute('aria-label', `Remove ${file.file_name} from this session`);
+        actions.append(remove);
       }
-      status.textContent = 'Upload complete.';
-    } catch (error) { status.textContent = error.message; status.classList.add('error'); }
+      li.append(label, actions); root.append(li);
+    }
+  }
+  async function refreshInspection() {
+    const result = await api(`/api/sessions/${sessionId}/inspect`, { method:'POST' });
+    renderUsage(result.usage);
+    $('#inspection-card').hidden = !result.files.length;
+    $('#chat-card').hidden = !result.files.length;
+    renderWorkbookProfiles(result.files, $('#file-profiles'));
+    if (result.overview) appendChatMessage('assistant', result.overview);
+    if (!result.ai_enabled && result.files.length) {
+      setStatus($('#command-status'), 'Workbook structure is ready. The AI overview is unavailable, but you can still send commands.');
+    }
+    return result;
+  }
+  function appendChatMessage(role, content, error = false) {
+    const bubble = document.createElement('div');
+    bubble.className = `message ${role}${error ? ' error' : ''}`;
+    bubble.textContent = content;
+    $('#chat-log').append(bubble);
+    $('#chat-log').scrollTop = $('#chat-log').scrollHeight;
+    return bubble;
+  }
+  function updateChatMessage(bubble, content, error = false) {
+    if (!bubble) return;
+    bubble.textContent = content;
+    bubble.classList.toggle('error', error);
+    $('#chat-log').scrollTop = $('#chat-log').scrollHeight;
+  }
+  function displayValue(value) {
+    if (value === null || value === undefined || value === '') return '(blank)';
+    return String(value);
+  }
+  function addConfirmationFact(root, label, value) {
+    if (value === undefined || value === null || value === '') return;
+    const fact = document.createElement('div'); fact.className = 'confirmation-fact';
+    const name = document.createElement('span'); name.textContent = label;
+    const content = document.createElement('strong'); content.textContent = value;
+    fact.append(name, content); root.append(fact);
+  }
+  function addPreviewTable(root, headers, rows) {
+    if (!Array.isArray(rows) || !rows.length) return;
+    const wrapper = document.createElement('div'); wrapper.className = 'confirmation-preview';
+    const table = document.createElement('table'), thead = document.createElement('thead'), head = document.createElement('tr');
+    const safeHeaders = headers?.length ? headers : rows[0].map((_, index) => `Value ${index + 1}`);
+    safeHeaders.forEach(value => { const th = document.createElement('th'); th.textContent = displayValue(value); head.append(th); });
+    thead.append(head); table.append(thead);
+    const body = document.createElement('tbody');
+    rows.slice(0, 8).forEach(row => { const tr = document.createElement('tr'); (Array.isArray(row) ? row : [row]).forEach(value => { const td = document.createElement('td'); td.textContent = displayValue(value); tr.append(td); }); body.append(tr); });
+    table.append(body); wrapper.append(table); root.append(wrapper);
+  }
+  function renderConfirmation(confirmation) {
+    const root = $('#confirm-content'); root.replaceChildren();
+    const target = confirmation.target || {}, exact = confirmation.exact || {};
+    const warning = document.createElement('p'); warning.className = 'confirmation-summary';
+    warning.textContent = confirmation.detail || 'This action will change the uploaded file.'; root.append(warning);
+    const facts = document.createElement('div'); facts.className = 'confirmation-facts';
+    addConfirmationFact(facts, 'File', confirmation.file_name || 'Current file');
+    addConfirmationFact(facts, 'Sheet', target.sheet);
+    addConfirmationFact(facts, 'Affected columns', Array.isArray(exact.columns) ? exact.columns.join(', ') : exact.column);
+    addConfirmationFact(facts, 'Affected rows', exact.rows || exact.row_number);
+    addConfirmationFact(facts, 'Rows affected', exact.row_count || exact.count);
+    if (Array.isArray(exact.non_empty_cells)) addConfirmationFact(facts, 'Values affected', exact.non_empty_cells.reduce((sum, count) => sum + count, 0));
+    if (exact.cell_count) addConfirmationFact(facts, 'Values affected', exact.cell_count);
+    if (exact.range) addConfirmationFact(facts, 'Table range', exact.range);
+    if (exact.paragraph_index !== undefined) addConfirmationFact(facts, 'Paragraph', exact.paragraph_index + 1);
+    if (exact.table_index !== undefined) addConfirmationFact(facts, 'Table', exact.table_index + 1);
+    if (exact.row !== undefined) addConfirmationFact(facts, 'Table row', exact.row + 1);
+    if (exact.column !== undefined) addConfirmationFact(facts, 'Table column', exact.column + 1);
+    root.append(facts);
+
+    let headers = exact.headers, rows = exact.sample_values_first_8_rows;
+    if (Array.isArray(exact.cells)) { headers = ['Cell', 'Current value']; rows = exact.cells.map(item => [item.cell, item.value]); }
+    else if (exact.paragraph_text !== undefined) { headers = ['Paragraph text']; rows = [[exact.paragraph_text]]; }
+    else if (Array.isArray(exact.values)) { rows = exact.values; }
+    else if (Array.isArray(exact.duplicate_rows)) { headers = ['Row number', ...(exact.duplicate_rows[0]?.values || []).map((_, index) => `Value ${index + 1}`)]; rows = exact.duplicate_rows.map(item => [item.row_number, ...item.values]); }
+    if (rows?.length) {
+      const label = document.createElement('p'); label.className = 'muted';
+      label.textContent = exact.sample_truncated ? 'Preview of the first 8 affected rows:' : 'Affected data:';
+      root.append(label); addPreviewTable(root, headers, rows);
+    }
+  }
+  async function removeFile(row) {
+    if (!row || !confirm(`Remove ${row.dataset.fileName} from this session? The file on your computer will not be deleted.`)) return;
+    const fileId = row.dataset.fileId;
+    try {
+      await api(`/api/sessions/${sessionId}/files/${fileId}`, { method:'DELETE' });
+      row.remove();
+      if ($('#files').children.length) {
+        await refreshInspection();
+        await refreshFileList();
+        setStatus($('#upload-status'), 'File removed. SmartDoc updated its understanding of the remaining files.');
+      } else {
+        $('#inspection-card').hidden = true; $('#chat-card').hidden = true;
+        $('#chat-log').replaceChildren(); $('#file-profiles').replaceChildren();
+        setStatus($('#upload-status'), 'No files in this session. Add a file to continue.');
+      }
+    } catch (error) { setStatus($('#upload-status'), error.message, true); }
+  }
+
+  $('#run').addEventListener('click', runCommand);
+  async function runCommand() {
+    if (!sessionId) return;
+    const command = $('#command').value.trim(); if (!command) { setStatus($('#command-status'), 'Enter a command first.', true); return; }
+    renderUsage(null);
+    appendChatMessage('user', command);
+    activeAssistantMessage = appendChatMessage('assistant', 'I’m reviewing your request and the workbook.');
+    busy(true); setStatus($('#command-status'), 'SmartDoc is reviewing your files and working…');
+    try {
+      const result = await api(`/api/sessions/${sessionId}/commands`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command}) });
+      $('#command').value = '';
+      if (result.status === 'running') await waitForCommand(result.command_id); else await handleResult(result);
+    } catch (error) { updateChatMessage(activeAssistantMessage, error.message, true); setStatus($('#command-status'), error.message, true); busy(false); }
+  }
+  async function handleResult(result) {
+    showActivity(result.activity || []);
+    renderUsage(result.usage);
+    if (result.status === 'confirmation_required') {
+      pendingConfirmation = result.confirmation_id;
+      updateChatMessage(activeAssistantMessage, 'This change needs your confirmation. I’ve listed the affected data in the confirmation window.');
+      $('#confirm-title').textContent = result.confirmation.title;
+      $('#confirm-detail').textContent = result.confirmation.detail;
+      renderConfirmation(result.confirmation);
+      $('#confirm-dialog').showModal(); busy(false); return;
+    }
+    $('#confirm-dialog').close(); pendingConfirmation = null;
+    if (result.status === 'complete') {
+      updateChatMessage(activeAssistantMessage, result.summary || 'Done.');
+      $('#result-card').hidden = false; $('#summary').textContent = result.summary;
+      renderOutputs(result.files || []); renderPreview(result.current_files || []); await refreshFileList();
+      $('#undo').dataset.available = String(result.can_undo); $('#undo').disabled = !result.can_undo; setStatus($('#command-status'), 'Command complete.');
+    } else if (result.status === 'cancelled') {
+      updateChatMessage(activeAssistantMessage, result.summary || 'Action cancelled.');
+      setStatus($('#command-status'), result.summary);
+    } else if (result.status === 'error') {
+      updateChatMessage(activeAssistantMessage, result.detail || 'Command failed.', true);
+      setStatus($('#command-status'), result.detail || 'Command failed.', true);
+    }
+    busy(false);
+  }
+  async function waitForCommand(commandId) {
+    while (true) {
+      const result = await api(`/api/sessions/${sessionId}/commands/${commandId}`);
+      showActivity(result.activity || []);
+      renderUsage(result.usage);
+      if (result.status !== 'running') { await handleResult(result); return; }
+      const last = result.activity?.at(-1);
+      setStatus($('#command-status'), last ? `Working · ${last.detail}` : 'SmartDoc is reviewing your files…');
+      if (last) updateChatMessage(activeAssistantMessage, last.detail);
+      await new Promise(resolve => setTimeout(resolve, 350));
+    }
+  }
+  $('#confirm-action').addEventListener('click', async () => {
+    if (!pendingConfirmation) return;
+    const confirmationId = pendingConfirmation; busy(true); setStatus($('#command-status'), 'Applying confirmed change…');
+    try {
+      const result = await api(`/api/sessions/${sessionId}/commands/confirm`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirmation_id:confirmationId, confirmed:true}) });
+      if (result.status === 'running') await waitForCommand(result.command_id); else await handleResult(result);
+    } catch (error) { setStatus($('#command-status'), error.message, true); busy(false); $('#confirm-dialog').close(); }
+  });
+  $('#confirm-dialog').addEventListener('cancel', event => { event.preventDefault(); cancelPending(); });
+  $('#cancel-action').addEventListener('click', cancelPending);
+  async function cancelPending() {
+    if (!pendingConfirmation) { $('#confirm-dialog').close(); return; }
+    try {
+      const result = await api(`/api/sessions/${sessionId}/commands/confirm`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirmation_id:pendingConfirmation, confirmed:false}) });
+      await handleResult(result);
+    } catch (error) { setStatus($('#command-status'), error.message, true); $('#confirm-dialog').close(); }
+  }
+  $('#undo').addEventListener('click', async () => {
+    busy(true);
+    try {
+      const result = await api(`/api/sessions/${sessionId}/undo`, { method:'POST' });
+      setStatus($('#command-status'), 'Undid the last command.');
+      $('#undo').dataset.available = String(result.can_undo); $('#undo').disabled = !result.can_undo;
+      renderPreview(result.current_files || []); await refreshFileList();
+      $('#outputs').replaceChildren();
+    } catch (error) { setStatus($('#command-status'), error.message, true); }
+    busy(false);
+  });
+
+  function busy(value) { $('#run').disabled = value; if (value) $('#undo').disabled = true; else $('#undo').disabled = $('#undo').dataset.available !== 'true'; }
+  function renderUsage(usage) {
+    const card = $('#usage-card'), requests = $('#usage-requests');
+    requests.replaceChildren();
+    if (!usage || !usage.request_count) { card.hidden = true; return; }
+    card.hidden = false;
+    $('#usage-total').textContent = `${usage.total_tokens.toLocaleString()} total tokens across ${usage.request_count} Groq request${usage.request_count === 1 ? '' : 's'} · ${usage.prompt_tokens.toLocaleString()} prompt + ${usage.completion_tokens.toLocaleString()} completion`;
+    for (const [index, request] of (usage.requests || []).entries()) {
+      const row = document.createElement('div'); row.className = 'usage-call';
+      const title = document.createElement('strong');
+      title.textContent = `${request.phase === 'file_inspection' ? 'File inspection' : 'Command'}${request.turn ? ` · turn ${request.turn}` : ''} · ${request.status}`;
+      const exact = document.createElement('span');
+      exact.textContent = request.prompt_tokens == null
+        ? `Request ${index + 1} · provider token totals unavailable`
+        : `Request ${index + 1} · ${request.prompt_tokens.toLocaleString()} prompt + ${(request.completion_tokens || 0).toLocaleString()} completion = ${(request.total_tokens || 0).toLocaleString()} tokens · ${request.model}`;
+      const parts = document.createElement('div'); parts.className = 'usage-parts';
+      for (const [name, count] of Object.entries(request.approx_prompt_tokens_by_component || {})) {
+        const chip = document.createElement('span'); chip.className = 'usage-part';
+        chip.textContent = `${name.replaceAll('_', ' ')} ~${count.toLocaleString()} tokens`;
+        parts.append(chip);
+      }
+      row.append(title, exact, parts); requests.append(row);
+    }
+  }
+  function showActivity(items) {
+    const root = $('#activity'); root.replaceChildren();
+    for (const entry of items) {
+      const div = document.createElement('div'); div.className='log-item';
+      const strong = document.createElement('strong'); strong.textContent = entry.tool || 'Agent';
+      const text = document.createElement('span'); text.textContent = entry.detail || JSON.stringify(entry.result || 'Completed');
+      div.append(strong, text); root.append(div);
+    }
+    $('#activity-card').hidden = !items.length;
+  }
+  function renderOutputs(files) {
+    const root = $('#outputs'); root.replaceChildren();
+    for (const file of files) {
+      const row = document.createElement('div'); row.className='file-output';
+      const label = document.createElement('span'); label.textContent = file.file_name;
+      const link = document.createElement('a'); link.className='download'; link.href=apiUrl(file.download_url); link.textContent='Download';
+      row.append(label, link); root.append(row);
+    }
+  }
+  function renderPreview(files) {
+    renderWorkbookProfiles(files, $('#preview'));
+  }
+  function renderWorkbookProfiles(files, root) {
+    root.replaceChildren();
+    for (const file of files) {
+      const profile = document.createElement('div'); profile.className='profile-file';
+      const titleRow = document.createElement('div'); titleRow.className='row space';
+      const title = document.createElement('h3'); title.textContent = file.file_name;
+      titleRow.append(title);
+      if (file.file_id) {
+        const download = document.createElement('a'); download.className='download';
+        download.href=apiUrl(`/api/sessions/${sessionId}/files/${file.file_id}/download`);
+        download.textContent=`Download ${file.file_name}`;
+        titleRow.append(download);
+      }
+      profile.append(titleRow);
+      if (file.summary?.error) {
+        const error = document.createElement('p'); error.className='muted'; error.textContent=file.summary.error; profile.append(error);
+      }
+      if (file.summary?.paragraph_count !== undefined) {
+        const overview = document.createElement('p'); overview.className = 'muted';
+        overview.textContent = `${file.summary.paragraph_count} paragraphs · ${file.summary.tables?.length || 0} tables`;
+        profile.append(overview);
+        for (const paragraph of file.summary.paragraphs || []) {
+          if (!paragraph.text) continue;
+          const item = document.createElement('div'); item.className = 'log-item';
+          item.textContent = `Paragraph ${paragraph.index + 1} · ${paragraph.style}: ${paragraph.text}`;
+          profile.append(item);
+        }
+        for (const tableInfo of file.summary.tables || []) {
+          const label = document.createElement('div'); label.className = 'muted';
+          label.textContent = `Table ${tableInfo.index + 1} · ${tableInfo.rows} rows · ${tableInfo.columns} columns`;
+          profile.append(label);
+          addPreviewTable(profile, tableInfo.sample_rows?.[0], tableInfo.sample_rows?.slice(1));
+        }
+        root.append(profile); continue;
+      }
+      for (const sheet of file.summary?.sheets || []) {
+        const block = document.createElement('div'); block.className='preview-sheet';
+        const heading = document.createElement('div'); heading.className='muted';
+        heading.textContent=`${sheet.sheet_name} · ${sheet.row_count} data rows · ${sheet.used_range || ''}`;
+        block.append(heading);
+        if (sheet.tables?.length) {
+          const tables = document.createElement('div'); tables.className='muted'; tables.textContent=`Excel tables: ${sheet.tables.join(', ')}`; block.append(tables);
+        }
+        const table = document.createElement('table'), head = document.createElement('tr');
+        for (const value of sheet.headers || []) { const th=document.createElement('th'); th.textContent=String(value); head.append(th); }
+        const thead=document.createElement('thead'); thead.append(head); table.append(thead);
+        const tbody=document.createElement('tbody');
+        for (const row of sheet.sample_rows || []) { const tr=document.createElement('tr'); for (const value of row) { const td=document.createElement('td'); td.textContent=value == null ? '' : String(value); tr.append(td); } tbody.append(tr); }
+        table.append(tbody); block.append(table); profile.append(block);
+      }
+      root.append(profile);
+    }
   }
   start();
 </script>
