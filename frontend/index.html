@@ -75,13 +75,37 @@
     dialog { max-width:min(620px, calc(100% - 30px)); border:0; border-radius:14px; padding:0; box-shadow:0 18px 70px #10182855; } dialog::backdrop { background:#10182888; }
     .dialog-body { padding:23px; } .confirmation-summary { background:#fff7ed; border:1px solid #fed7aa; border-radius:9px; padding:11px 12px; color:#7c2d12; } .confirmation-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:9px; margin:14px 0; } .confirmation-fact { background:#f7f9fb; border-radius:8px; padding:9px 10px; } .confirmation-fact span { display:block; color:#667085; font-size:12px; } .confirmation-preview { max-height:280px; overflow:auto; border:1px solid #e2e7ec; border-radius:8px; } .confirmation-preview table { width:100%; min-width:0; } .confirmation-preview td,.confirmation-preview th { max-width:180px; overflow:hidden; text-overflow:ellipsis; } .confirmation-note { margin:12px 0; color:#667085; font-size:13px; }
     @media(max-width:600px) { main { margin-top:20px; padding:0 14px 40px; } .card { padding:16px; } header { align-items:flex-start; } .agent-state { margin-left:0; } .section-heading { gap:10px; flex-wrap:wrap; } .section-icon { width:38px; height:38px; flex-basis:38px; } }
+    [hidden] { display:none !important; }
+    .workflow { display:flex; gap:8px; flex-wrap:wrap; }
+    .workflow button[aria-pressed="false"] { background:white; color:#344054; border:1px solid #cfd7df; }
+    #create-form fieldset { display:flex; flex-wrap:wrap; gap:16px; border:0; padding:0; margin:0 0 14px; }
+    #create-form legend, #create-form label[for] { display:block; font-weight:600; margin-bottom:6px; }
+    #create-form textarea { margin-bottom:10px; }
   </style>
 </head>
 <body><main>
-  <header><div><h1>SmartDoc</h1><div class="muted">Edit spreadsheets and Word documents with plain English</div></div><button id="undo" class="secondary" disabled>Undo last command</button></header>
+  <header><div><h1>SmartDoc</h1><div class="muted">Create and edit spreadsheets and Word documents in plain English</div></div><button id="undo" class="secondary" disabled>Undo last command</button></header>
 
-  <section class="card workspace-card upload-card">
-    <div class="section-heading"><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></span><div><span class="section-kicker">Step 01 · Upload</span><h2>Add your files</h2><p class="section-description">Start with one or more spreadsheets or Word documents.</p></div></div>
+  <div class="workflow" role="group" aria-label="Choose how to start">
+    <button id="choose-create" aria-pressed="true" aria-controls="create-card">Create a new file</button>
+    <button id="choose-existing" aria-pressed="false" aria-controls="upload-card">Work with an existing file</button>
+  </div>
+  <section class="card workspace-card" id="create-card">
+    <h2>Create a new file</h2>
+    <form id="create-form">
+      <fieldset><legend>File type</legend>
+        <label><input type="radio" name="format" value="docx" checked> Word document (.docx)</label>
+        <label><input type="radio" name="format" value="xlsx"> Excel workbook (.xlsx)</label>
+      </fieldset>
+      <label for="create-brief">What would you like to create?</label>
+      <textarea id="create-brief" required placeholder="For example, a five-page introduction to AI and machine learning."></textarea>
+      <button id="generate" type="submit" disabled>Generate file</button>
+      <p class="status" id="create-status" role="status">Starting session…</p>
+      <div id="create-download"></div>
+    </form>
+  </section>
+  <section class="card workspace-card upload-card" id="upload-card" hidden>
+    <div class="section-heading"><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></span><div><span class="section-kicker">Optional upload</span><h2>Add your files</h2><p class="section-description">Start a new file in chat, or upload a file to edit or use as a Word template.</p></div></div>
     <div id="drop" tabindex="0" role="button" aria-label="Choose or drop Excel, CSV, or Word files">
       <div class="drop-inner"><span class="upload-orb" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></span>
       <strong>Drop Excel, CSV, or Word files here</strong><br><span class="muted">or use Add files · 20 MB per file</span>
@@ -101,22 +125,23 @@
     <div class="section-heading"><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/></svg></span><div><span class="section-kicker">AI workspace</span><h2>Chat with SmartDoc</h2><p class="section-description">Describe the result you want. SmartDoc will plan and apply it.</p></div><span class="agent-state"><span class="agent-dot"></span>Agent ready</span></div>
     <div id="chat-log" role="log" aria-live="polite"></div>
     <div class="chips">
+      <button class="chip" type="button">Create a Word document about AI and ML in five pages or fewer</button>
+      <button class="chip" type="button">Create an Excel workbook for a monthly budget</button>
       <button class="chip" type="button">Merge all files</button>
-      <button class="chip" type="button">Remove duplicate rows across all columns</button>
-      <button class="chip" type="button">Sort by the first column ascending</button>
+      <button class="chip" type="button">Use the uploaded Word document as a template for a new brief</button>
       <button class="chip" type="button">Explain what this file contains</button>
     </div>
-    <textarea id="command" placeholder="Ask about your workbook or tell SmartDoc what to change…"></textarea>
+    <textarea id="command" placeholder="Describe the Word document or Excel workbook you want to create or edit…"></textarea>
     <div class="row space" style="margin-top:12px"><span class="muted">You will review destructive changes before they run.</span><button id="run">Send to SmartDoc</button></div>
     <p id="command-status" class="status" aria-live="polite"></p>
   </section>
 
   <section class="card workspace-card" id="result-card" hidden>
-    <h2>Your updated files</h2><p id="summary"></p><div id="outputs"></div><div id="preview"></div>
+    <h2>Your files</h2><p id="summary"></p><div id="outputs"></div><div id="preview"></div>
   </section>
 
   <section class="card workspace-card" id="usage-card" hidden>
-    <h2>Groq request usage</h2><p class="usage-total" id="usage-total"></p>
+    <h2>Model request usage</h2><p class="usage-total" id="usage-total"></p>
     <p class="usage-note">Provider token totals are exact. Prompt component token counts are approximate, based on text size.</p>
     <div id="usage-requests"></div>
   </section>
@@ -137,6 +162,22 @@
   const picker = $('#picker'), drop = $('#drop');
   let sessionId = null, pendingConfirmation = null;
   let activeAssistantMessage = null;
+  let generatingFile = false;
+  function chooseWorkflow(create) {
+    $('#create-card').hidden = !create;
+    $('#upload-card').hidden = create;
+    $('#choose-create').setAttribute('aria-pressed', String(create));
+    $('#choose-existing').setAttribute('aria-pressed', String(!create));
+  }
+  $('#choose-create').addEventListener('click', () => chooseWorkflow(true));
+  $('#choose-existing').addEventListener('click', () => chooseWorkflow(false));
+  $('#create-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const format = new FormData(event.currentTarget).get('format');
+    const brief = $('#create-brief').value.trim();
+    if (!brief) { setStatus($('#create-status'), 'Enter a description first.', true); return; }
+    runCommand(brief, format);
+  });
   const configuredApiOrigin = new URLSearchParams(location.search).get('api');
   const isBackendPage = ['localhost', '127.0.0.1'].includes(location.hostname) && location.port === '8000';
   const apiOrigin = (configuredApiOrigin || (isBackendPage ? '' : 'http://127.0.0.1:8000')).replace(/\/+$/, '');
@@ -157,13 +198,17 @@
   }
   function setStatus(element, message, error = false) {
     element.textContent = message; element.classList.toggle('error', error);
+    if (generatingFile && element === $('#command-status')) setStatus($('#create-status'), message, error);
   }
   async function start() {
     try {
       const result = await api('/api/sessions', { method:'POST' });
       sessionId = result.session_id;
-      setStatus($('#upload-status'), 'Session ready. Upload .xlsx or .csv files to begin.');
-    } catch (error) { setStatus($('#upload-status'), error.message, true); }
+      $('#generate').disabled = false;
+      setStatus($('#create-status'), '');
+      $('#chat-card').hidden = false;
+      setStatus($('#upload-status'), 'Session ready.');
+    } catch (error) { setStatus($('#upload-status'), error.message, true); setStatus($('#create-status'), error.message, true); }
   }
   drop.addEventListener('click', () => picker.click());
   $('#add-files').addEventListener('click', () => picker.click());
@@ -216,7 +261,6 @@
     const result = await api(`/api/sessions/${sessionId}/inspect`, { method:'POST' });
     renderUsage(result.usage);
     $('#inspection-card').hidden = !result.files.length;
-    $('#chat-card').hidden = !result.files.length;
     renderWorkbookProfiles(result.files, $('#file-profiles'));
     if (result.overview) appendChatMessage('assistant', result.overview);
     if (!result.ai_enabled && result.files.length) {
@@ -302,26 +346,29 @@
         await refreshFileList();
         setStatus($('#upload-status'), 'File removed. SmartDoc updated its understanding of the remaining files.');
       } else {
-        $('#inspection-card').hidden = true; $('#chat-card').hidden = true;
+        $('#inspection-card').hidden = true;
         $('#chat-log').replaceChildren(); $('#file-profiles').replaceChildren();
-        setStatus($('#upload-status'), 'No files in this session. Add a file to continue.');
+        setStatus($('#upload-status'), 'No files in this session. Create a new file in chat.');
       }
     } catch (error) { setStatus($('#upload-status'), error.message, true); }
   }
 
-  $('#run').addEventListener('click', runCommand);
-  async function runCommand() {
+  $('#run').addEventListener('click', () => runCommand($('#command').value.trim()));
+  async function runCommand(command, format = null) {
     if (!sessionId) return;
-    const command = $('#command').value.trim(); if (!command) { setStatus($('#command-status'), 'Enter a command first.', true); return; }
+    if (!command) { setStatus($('#command-status'), 'Enter a command first.', true); return; }
+    generatingFile = Boolean(format);
+    if (format) $('#create-download').replaceChildren();
     renderUsage(null);
-    appendChatMessage('user', command);
-    activeAssistantMessage = appendChatMessage('assistant', 'I’m reviewing your request and the workbook.');
-    busy(true); setStatus($('#command-status'), 'SmartDoc is reviewing your files and working…');
+    appendChatMessage('user', format ? `Create .${format}: ${command}` : command);
+    activeAssistantMessage = appendChatMessage('assistant', 'I’m reviewing your request.');
+    busy(true); setStatus($('#command-status'), 'SmartDoc is working…');
     try {
-      const result = await api(`/api/sessions/${sessionId}/commands`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command}) });
-      $('#command').value = '';
+      const result = await api(`/api/sessions/${sessionId}/commands`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command, output_format:format}) });
+      if (!format) $('#command').value = '';
       if (result.status === 'running') await waitForCommand(result.command_id); else await handleResult(result);
     } catch (error) { updateChatMessage(activeAssistantMessage, error.message, true); setStatus($('#command-status'), error.message, true); busy(false); }
+    finally { generatingFile = false; }
   }
   async function handleResult(result) {
     showActivity(result.activity || []);
@@ -339,7 +386,9 @@
       updateChatMessage(activeAssistantMessage, result.summary || 'Done.');
       $('#result-card').hidden = false; $('#summary').textContent = result.summary;
       renderOutputs(result.files || []); renderPreview(result.current_files || []); await refreshFileList();
-      $('#undo').dataset.available = String(result.can_undo); $('#undo').disabled = !result.can_undo; setStatus($('#command-status'), 'Command complete.');
+      if (generatingFile) renderOutputs(result.files || [], $('#create-download'));
+      $('#undo').dataset.available = String(result.can_undo); $('#undo').disabled = !result.can_undo;
+      setStatus($('#command-status'), ['Command complete.', modelResponseTime(result.usage)].filter(Boolean).join(' '));
     } else if (result.status === 'cancelled') {
       updateChatMessage(activeAssistantMessage, result.summary || 'Action cancelled.');
       setStatus($('#command-status'), result.summary);
@@ -386,22 +435,32 @@
       $('#undo').dataset.available = String(result.can_undo); $('#undo').disabled = !result.can_undo;
       renderPreview(result.current_files || []); await refreshFileList();
       $('#outputs').replaceChildren();
+      $('#create-download').replaceChildren();
     } catch (error) { setStatus($('#command-status'), error.message, true); }
     busy(false);
   });
 
-  function busy(value) { $('#run').disabled = value; if (value) $('#undo').disabled = true; else $('#undo').disabled = $('#undo').dataset.available !== 'true'; }
+  function busy(value) { $('#run').disabled = value; $('#generate').disabled = value || !sessionId || Boolean(pendingConfirmation); if (value) $('#undo').disabled = true; else $('#undo').disabled = $('#undo').dataset.available !== 'true'; }
+  function modelResponseTime(usage) {
+    const requests = usage?.requests || [];
+    if (!requests.length || !requests.every(request => Number.isFinite(request.elapsed_seconds))) return '';
+    const seconds = requests.reduce((sum, request) => sum + request.elapsed_seconds, 0);
+    return `Model response time: ${seconds.toFixed(1)} s`;
+  }
   function renderUsage(usage) {
     const card = $('#usage-card'), requests = $('#usage-requests');
     requests.replaceChildren();
     if (!usage || !usage.request_count) { card.hidden = true; return; }
     card.hidden = false;
-    $('#usage-total').textContent = `${usage.total_tokens.toLocaleString()} total tokens across ${usage.request_count} Groq request${usage.request_count === 1 ? '' : 's'} · ${usage.prompt_tokens.toLocaleString()} prompt + ${usage.completion_tokens.toLocaleString()} completion`;
+    $('#usage-total').textContent = `${usage.total_tokens.toLocaleString()} total tokens across ${usage.request_count} model request${usage.request_count === 1 ? '' : 's'} · ${usage.prompt_tokens.toLocaleString()} prompt + ${usage.completion_tokens.toLocaleString()} completion`;
+    const timing = modelResponseTime(usage);
+    if (timing) $('#usage-total').textContent += ` · ${timing}`;
     for (const [index, request] of (usage.requests || []).entries()) {
       const row = document.createElement('div'); row.className = 'usage-call';
       const title = document.createElement('strong');
       title.textContent = `${request.phase === 'file_inspection' ? 'File inspection' : 'Command'}${request.turn ? ` · turn ${request.turn}` : ''} · ${request.status}`;
       const exact = document.createElement('span');
+      if (Number.isFinite(request.elapsed_seconds)) title.textContent += ` · ${request.elapsed_seconds.toFixed(1)} s`;
       exact.textContent = request.prompt_tokens == null
         ? `Request ${index + 1} · provider token totals unavailable`
         : `Request ${index + 1} · ${request.prompt_tokens.toLocaleString()} prompt + ${(request.completion_tokens || 0).toLocaleString()} completion = ${(request.total_tokens || 0).toLocaleString()} tokens · ${request.model}`;
@@ -424,8 +483,8 @@
     }
     $('#activity-card').hidden = !items.length;
   }
-  function renderOutputs(files) {
-    const root = $('#outputs'); root.replaceChildren();
+  function renderOutputs(files, root = $('#outputs')) {
+    root.replaceChildren();
     for (const file of files) {
       const row = document.createElement('div'); row.className='file-output';
       const label = document.createElement('span'); label.textContent = file.file_name;

@@ -41,7 +41,7 @@ def test_routes_compatible_file_merges_to_only_the_merge_tool():
 def test_mixed_or_unknown_file_types_fall_back_to_full_tool_set():
     assert agent.route("merge these files", ["a.docx", "b.xlsx"]) == ("full", False)
     assert agent.route("sort this sheet", ["a.xlsx", "legacy.xls"]) == ("full", False)
-    assert agent.route("make a change", []) == ("full", False)
+    assert agent.route("make a change", []) == ("create", False)
 
 
 def test_routes_session_file_objects_and_does_not_misroute_row_append():

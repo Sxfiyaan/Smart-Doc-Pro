@@ -12,6 +12,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
@@ -20,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from backend.session_file import SessionFile
 from backend import agent
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -29,15 +31,6 @@ SESSION_TTL_SECONDS = 60 * 60
 SUPPORTED_EXTENSIONS = {".xlsx", ".csv", ".docx", ".txt"}
 STORAGE_ROOT = Path(tempfile.gettempdir()) / "smartdoc-sessions"
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
-
-
-@dataclass
-class SessionFile:
-    file_id: str
-    display_name: str
-    path: Path
-    size: int
-    is_output: bool = False
 
 
 @dataclass
@@ -59,6 +52,7 @@ class Session:
 
 class CommandRequest(BaseModel):
     command: str
+    output_format: Literal["docx", "xlsx"] | None = None
 
 
 class ConfirmationRequest(BaseModel):
@@ -279,7 +273,7 @@ async def run_command(session_id: str, request: CommandRequest) -> dict:
         if session.pending_command is not None or session.active_command_id:
             raise HTTPException(status_code=409, detail="Confirm or cancel the pending action first")
         try:
-            context = agent.start_command(session, request.command)
+            context = agent.start_command(session, request.command, request.output_format)
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _schedule_command(session, context)

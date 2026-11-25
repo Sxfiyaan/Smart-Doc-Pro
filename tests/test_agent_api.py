@@ -101,7 +101,7 @@ def tool_call(call_id: str, name: str, args: dict) -> FakeMessage:
 
 def use_fake_groq(monkeypatch, *messages):
     fake = FakeGroq(messages)
-    monkeypatch.setattr(agent, "_groq_client", lambda: (fake, "test-model"))
+    monkeypatch.setattr(agent, "_model_client", lambda: (fake.chat.completions.create, "test-model"))
 
 
 def test_clear_range_language_uses_the_correct_axis():
@@ -152,6 +152,8 @@ def test_tool_command_creates_downloadable_copy_and_undoes(client, monkeypatch):
                            json={"command": "Change the first employee name to Anya"})
     result = wait_for_command(client, session_id, response)
     assert result["status"] == "complete" and result["can_undo"] is True
+    assert len(result["usage"]["requests"]) == 2
+    assert all(request["elapsed_seconds"] >= 0 for request in result["usage"]["requests"])
     assert result["files"][0]["file_name"] == "staff_edited.xlsx"
     current_files = client.get(f"/api/sessions/{session_id}/files").json()["files"]
     edited_listing = next(item for item in current_files if item["is_current"])
@@ -205,6 +207,83 @@ def test_confirmed_destructive_call_creates_copy_and_undo_restores(client, monke
     workbook.close()
     assert client.get(f"/api/sessions/{session_id}/files/{file_id}/download").content == original
     assert client.post(f"/api/sessions/{session_id}/undo").status_code == 200
+
+
+@pytest.mark.parametrize("command,name,args", [
+    ("Generate a docx about AI and ML in at most five pages", "create_document",
+     {"title": "AI and ML", "pages": [{"heading": "Artificial intelligence", "text": "Machine learning uses data."}]}),
+    ("Create an Excel budget", "create_workbook",
+     {"title": "Budget", "sheets": [{"name": "Expenses", "rows": [["Item", "Cost"], ["Rent", 500]]}]}),
+])
+def test_generate_without_upload(client, monkeypatch, command, name, args):
+    sid = client.post("/api/sessions").json()["session_id"]
+    use_fake_groq(monkeypatch, tool_call("create", name, args))
+    result = wait_for_command(client, sid, client.post(f"/api/sessions/{sid}/commands", json={"command": command}))
+    assert result["status"] == "complete"
+    output, = result["files"]
+    assert result["current_files"][0]["file_id"] == output["file_id"]
+    data = BytesIO(client.get(output["download_url"]).content)
+    if name == "create_document":
+        assert WordDocument(data).paragraphs[1].text == "Machine learning uses data."
+    else:
+        assert load_workbook(data)["Expenses"]["B2"].value == 500
+    assert client.post(f"/api/sessions/{sid}/undo").json()["current_files"] == []
+    assert client.get(output["download_url"]).status_code == 404
+
+
+def test_format_picker_creates_word_file_with_existing_workbook(client, monkeypatch):
+    sid, original_id, original = upload_workbook(client)
+    use_fake_groq(monkeypatch, tool_call("draft", "create_document", {
+        "title": "AI brief", "pages": [{"heading": "AI", "text": "Models learn from examples."}],
+    }))
+    started = client.post(f"/api/sessions/{sid}/commands", json={"command": "AI brief", "output_format": "docx"})
+    result = wait_for_command(client, sid, started)
+    assert result["files"][0]["file_name"] == "AI brief.docx"
+    assert client.get(f"/api/sessions/{sid}/files/{original_id}/download").content == original
+
+
+def test_draft_from_template_then_revise(client, monkeypatch):
+    template = WordDocument()
+    template.sections[0].header.paragraphs[0].text = "Research briefs"
+    paragraph = template.add_heading("", level=1)
+    paragraph.add_run("{{to").bold = True
+    paragraph.add_run("pic}}")
+    template.add_table(rows=1, cols=1).cell(0, 0).text = "{{finding}}"
+    buffer = BytesIO()
+    template.save(buffer)
+    sid = client.post("/api/sessions").json()["session_id"]
+    source = client.post(f"/api/sessions/{sid}/files", files=[
+        ("files", ("brief.docx", buffer.getvalue(), "application/octet-stream"))
+    ]).json()["files"][0]["file_id"]
+    use_fake_groq(monkeypatch, tool_call("draft", "draft_from_template", {
+        "file_id": source, "title": "AI brief",
+        "replacements": [{"source": "{{topic}}", "text": "AI & ML"},
+                         {"source": "{{finding}}", "text": "Models learn from data."}],
+        "append": [{"style": "Normal", "text": "Review the results."}],
+    }))
+    result = wait_for_command(client, sid, client.post(f"/api/sessions/{sid}/commands",
+                              json={"command": "Use brief.docx as a template for an AI brief"}))
+    draft, = result["files"]
+    loaded = WordDocument(BytesIO(client.get(draft["download_url"]).content))
+    assert loaded.paragraphs[0].text == "AI & ML" and loaded.paragraphs[0].runs[0].bold
+    assert loaded.tables[0].cell(0, 0).text == "Models learn from data."
+    assert loaded.sections[0].header.paragraphs[0].text == "Research briefs"
+    assert client.get(f"/api/sessions/{sid}/files/{source}/download").content == buffer.getvalue()
+    use_fake_groq(monkeypatch, tool_call("edit", "word_edit_paragraph", {
+        "file_id": draft["file_id"], "index": 1, "text": "Check accuracy."
+    }), FakeMessage(content="Revised the brief."))
+    revised = wait_for_command(client, sid, client.post(f"/api/sessions/{sid}/commands",
+                               json={"command": "Revise the closing line of the AI brief"}))
+    loaded = WordDocument(BytesIO(client.get(revised["files"][0]["download_url"]).content))
+    assert loaded.paragraphs[1].text == "Check accuracy."
+
+
+def test_generation_checks_page_limit_before_writing(tmp_path):
+    path = tmp_path / "draft.docx"
+    pages = [{"heading": "Topic", "text": "Content"}] * 6
+    with pytest.raises(ValueError, match="at most 5 pages"):
+        agent.generation.write_document(path, {"title": "AI", "pages": pages}, "No more than five pages")
+    assert not path.exists()
 
 
 def test_merge_command_uses_output_as_current_and_undo_restores_sources(client, monkeypatch):

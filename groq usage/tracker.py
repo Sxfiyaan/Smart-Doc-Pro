@@ -40,7 +40,7 @@ def _write(record: dict[str, Any]) -> None:
         pass
 
 
-def record_success(*, response: Any, model: str, phase: str,
+def record_success(*, response: Any, model: str, phase: str, elapsed_seconds: float,
                    component_chars: dict[str, int], turn: int | None = None,
                    operation_id: str | None = None) -> dict[str, Any]:
     usage = getattr(response, "usage", None)
@@ -61,6 +61,7 @@ def record_success(*, response: Any, model: str, phase: str,
         "turn": turn,
         "model": model,
         "status": "success",
+        "elapsed_seconds": elapsed_seconds,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
@@ -74,7 +75,7 @@ def record_success(*, response: Any, model: str, phase: str,
     return record
 
 
-def record_failure(*, model: str, phase: str, component_chars: dict[str, int],
+def record_failure(*, model: str, phase: str, component_chars: dict[str, int], elapsed_seconds: float,
                    turn: int | None = None, operation_id: str | None = None) -> dict[str, Any]:
     request_id = uuid.uuid4().hex
     record = {
@@ -85,6 +86,7 @@ def record_failure(*, model: str, phase: str, component_chars: dict[str, int],
         "turn": turn,
         "model": model,
         "status": "failed",
+        "elapsed_seconds": elapsed_seconds,
         "prompt_tokens": None,
         "completion_tokens": None,
         "total_tokens": None,

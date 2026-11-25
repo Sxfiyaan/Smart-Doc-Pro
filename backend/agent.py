@@ -8,6 +8,7 @@ import re
 import shutil
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
@@ -15,10 +16,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 from groq import Groq
+from groq.types.chat import ChatCompletion
+import httpx
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
 
+from backend.session_file import SessionFile
+from backend.tools import generation
 from backend.tools import excel_tools as excel
 from backend.tools import word_tools as word
 
@@ -43,6 +48,22 @@ FILE = {"type": "string", "description": "File ID listed in the provided file su
 SHEET = {"type": ["string", "null"], "description": "Workbook sheet name; use null for CSV"}
 RANGE = {"type": "string", "description": "Excel-style cell range such as A1:C10"}
 TOOLS = [
+    _tool("draft_from_template", "Create a separate Word document from an existing .docx. Preserve its layout. Replace exact source phrases (including placeholders in paragraphs or tables) and optionally append styled paragraphs. Supply all changes in one call.", {
+        "file_id": FILE, "title": {"type": "string"},
+        "replacements": {"type": "array", "items": {"type": "object", "properties": {
+            "source": {"type": "string"}, "text": {"type": "string"}}, "required": ["source", "text"]}},
+        "append": {"type": "array", "items": {"type": "object", "properties": {
+            "style": {"type": "string"}, "text": {"type": "string"}}, "required": ["style", "text"]}},
+    }, ["file_id", "title", "replacements", "append"]),
+    _tool("create_document", "Write a complete new Word document in one call. Supply the actual content, with one short section per page (up to 1200 characters each). Respect the requested page limit.", {
+        "title": {"type": "string"}, "pages": {"type": "array", "minItems": 1,
+        "items": {"type": "object", "properties": {"heading": {"type": "string"}, "text": {"type": "string"}},
+                  "required": ["heading", "text"]}}}, ["title", "pages"]),
+    _tool("create_workbook", "Write a complete new Excel workbook in one call. Include the header row and actual data in rows.", {
+        "title": {"type": "string"}, "sheets": {"type": "array", "minItems": 1,
+        "items": {"type": "object", "properties": {"name": {"type": "string"},
+                  "rows": {"type": "array", "items": {"type": "array", "items": {"type": ["string", "number", "boolean", "null"]}}}},
+                  "required": ["name", "rows"]}}}, ["title", "sheets"]),
     _tool("list_sheets", "List sheet names in a workbook. CSV has one Sheet1 data sheet.", {"file_id": FILE}, ["file_id"]),
     _tool("get_summary", "Get sheet names, headers, row counts and sample rows.", {"file_id": FILE}, ["file_id"]),
     _tool("read_range", "Read cell values from an Excel or CSV range.", {"file_id": FILE, "sheet": SHEET, "cell_range": RANGE}, ["file_id", "sheet", "cell_range"]),
@@ -88,9 +109,14 @@ TOOLS_BY_NAME = {tool["function"]["name"]: tool for tool in TOOLS}
 # Explicit groups keep routing independent of naming conventions. Several Excel
 # tools intentionally have no "excel_" prefix in the current public registry.
 TOOL_GROUPS = {
+    "create": ["create_document", "create_workbook"],
+    "docx": ["create_document"],
+    "xlsx": ["create_workbook"],
+    "template": ["draft_from_template"],
     "merge_excel": ["merge_files"],
     "merge_word": ["word_merge_documents"],
     "word_all": [
+        "create_document", "draft_from_template",
         "word_merge_documents", "word_read_document", "word_insert_paragraph",
         "word_edit_paragraph", "word_apply_style", "word_delete_paragraph",
         "word_create_table", "word_modify_table_cell", "word_add_table_row",
@@ -98,6 +124,7 @@ TOOL_GROUPS = {
         "word_delete_table_column",
     ],
     "excel_all": [
+        "create_workbook",
         "list_sheets", "get_summary", "read_range", "create_table", "modify_table",
         "update_cells", "clear_cells", "clear_columns", "clear_rows", "add_column",
         "delete_column", "delete_columns", "add_row", "delete_row", "delete_rows",
@@ -132,7 +159,11 @@ def file_kinds(files: list[Any]) -> tuple[bool, bool, bool]:
 
 def route(command: str, files: list[Any]) -> tuple[str, bool]:
     """Select only tools compatible with uploaded files; mixed/unknown inputs fall back safely."""
+    if not files:
+        return "create", False
     has_word, has_excel, has_unknown = file_kinds(files)
+    if has_word and re.search(r"\b(?:use|using|follow|based on|refer(?:ence)?|from)\b.*\btemplate\b", command, re.I | re.S):
+        return "template", False
     if has_unknown or (has_word and has_excel) or not (has_word or has_excel):
         return "full", False
 
@@ -161,6 +192,7 @@ class CommandContext:
     initial_message_count: int = 0
     tool_group: str = "full"
     dirty_ids: set[str] = field(default_factory=set)
+    generated_names: dict[str, str] = field(default_factory=dict)
     generated_ids: list[str] = field(default_factory=list)
     consumed_ids: set[str] = field(default_factory=set)
     activity: list[dict[str, Any]] = field(default_factory=list)
@@ -168,11 +200,66 @@ class CommandContext:
     pending_call: dict[str, Any] | None = None
 
 
-def _groq_client() -> tuple[Groq, str]:
+def _model_client():
+    provider = os.getenv("SMARTDOC_PROVIDER", "groq").strip().lower()
+    if provider == "ollama":
+        return _ollama_completion, os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+    if provider != "groq":
+        raise RuntimeError("SMARTDOC_PROVIDER must be groq or ollama")
     key = os.getenv("GROQ_API_KEY")
     if not key:
         raise RuntimeError("GROQ_API_KEY is missing. Set it in the environment or .env file.")
-    return Groq(api_key=key), os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    return Groq(api_key=key).chat.completions.create, os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+
+def _ollama_completion(*, model, messages, max_completion_tokens, temperature,
+                       tools=None, tool_choice="auto") -> ChatCompletion:
+    native_messages = []
+    for message in messages:
+        entry = {"role": message["role"], "content": message.get("content") or ""}
+        if message.get("tool_calls"):
+            entry["tool_calls"] = [{"function": {
+                "name": call["function"]["name"],
+                "arguments": json.loads(call["function"]["arguments"]),
+            }} for call in message["tool_calls"]]
+        if message["role"] == "tool":
+            entry["tool_name"] = message["name"]
+        native_messages.append(entry)
+    payload = {"model": model, "messages": native_messages, "stream": False, "think": False,
+               "options": {"num_ctx": 16384, "num_predict": max_completion_tokens,
+                           "temperature": temperature}}
+    forced = isinstance(tool_choice, dict)
+    if forced:
+        payload["format"] = tools[0]["function"]["parameters"]
+        native_messages[0]["content"] += " Return the completed file content as JSON matching the supplied schema."
+    elif tools:
+        payload["tools"] = tools
+    try:
+        response = httpx.post(
+            "http://127.0.0.1:11434/api/chat", json=payload,
+            timeout=httpx.Timeout(600, connect=5), trust_env=False,
+        )
+        response.raise_for_status()
+    except httpx.ConnectError as exc:
+        raise RuntimeError("Cannot reach local Ollama. Start the Ollama app or run ollama serve.") from exc
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"Ollama returned {response.status_code}: {response.text}") from exc
+    result = response.json()
+    reply = result["message"]
+    if forced:
+        reply = {"content": "", "tool_calls": [{"function": {
+            "name": tool_choice["function"]["name"], "arguments": json.loads(reply["content"]),
+        }}]}
+    calls = [{"id": uuid.uuid4().hex, "type": "function", "function": {
+        "name": call["function"]["name"], "arguments": json.dumps(call["function"]["arguments"]),
+    }} for call in reply.get("tool_calls") or []]
+    prompt, completion = result.get("prompt_eval_count", 0), result.get("eval_count", 0)
+    return ChatCompletion.model_validate({
+        "id": uuid.uuid4().hex, "model": model, "object": "chat.completion", "created": int(time.time()),
+        "choices": [{"index": 0, "finish_reason": "tool_calls" if calls else "stop",
+                     "message": {"role": "assistant", "content": reply.get("content"), "tool_calls": calls or None}}],
+        "usage": {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": prompt + completion},
+    })
 
 
 def _summary_for_ids(session, file_ids: list[str]) -> list[dict[str, Any]]:
@@ -184,6 +271,7 @@ def _summary_for_ids(session, file_ids: list[str]) -> list[dict[str, Any]]:
         except Exception as exc:
             summary = {"error": str(exc)}
         summaries.append({"file_id": file_id, "file_name": item.display_name,
+                          "is_output": item.is_output,
                           "download_url": f"/api/sessions/{session.session_id}/files/{file_id}/download",
                           "summary": summary})
     return summaries
@@ -224,15 +312,16 @@ def inspect_session(session) -> dict[str, Any]:
         {"role": "user", "content": inspection_user},
     ]
     try:
-        client, model = _groq_client()
-        response = client.chat.completions.create(
+        complete, model = _model_client()
+        started = time.perf_counter()
+        response = complete(
             model=model,
             messages=inspection_messages,
             temperature=0,
             max_completion_tokens=500,
         )
         usage_record = groq_usage.record_success(
-            response=response, model=model, phase="file_inspection",
+            response=response, model=model, phase="file_inspection", elapsed_seconds=time.perf_counter() - started,
             component_chars={
                 "system_instructions": len(inspection_system),
                 "file_summaries": len(inspection_user),
@@ -243,7 +332,7 @@ def inspect_session(session) -> dict[str, Any]:
     except Exception:
         if "model" in locals():
             usage_record = groq_usage.record_failure(
-                model=model, phase="file_inspection",
+                model=model, phase="file_inspection", elapsed_seconds=time.perf_counter() - started,
                 component_chars={
                     "system_instructions": len(inspection_system),
                     "file_summaries": len(inspection_user),
@@ -256,26 +345,25 @@ def inspect_session(session) -> dict[str, Any]:
             "usage": groq_usage.summarize([usage_record]) if usage_record else None}
 
 
-def start_command(session, command: str) -> CommandContext:
+def start_command(session, command: str, output_format: str | None = None) -> CommandContext:
     if not command.strip():
         raise ValueError("Enter a command first")
-    if not session.current_file_ids:
-        raise ValueError("Upload at least one .xlsx or .csv file first")
-    current_files = [session.files[file_id] for file_id in session.current_file_ids]
-    tool_group, _needs_clarification = route(command, current_files)
+    input_ids = [] if output_format else list(session.current_file_ids)
+    tool_group = output_format or route(command, [session.files[key] for key in input_ids])[0]
     work_dir = session.directory / f"command-{uuid.uuid4().hex}"
     work_dir.mkdir(parents=True, exist_ok=False)
     working_paths: dict[str, Path] = {}
-    for file_id in session.current_file_ids:
+    for file_id in input_ids:
         item = session.files[file_id]
         path = work_dir / f"{file_id}{item.path.suffix.lower()}"
         shutil.copy2(item.path, path)
         working_paths[file_id] = path
-    summaries = _summary_for_ids(session, session.current_file_ids)
-    history = list(session.chat_history[-MAX_CHAT_HISTORY_MESSAGES:])
+    summaries = _summary_for_ids(session, input_ids)
+    history = [] if output_format else list(session.chat_history[-MAX_CHAT_HISTORY_MESSAGES:])
     system_content = (
             "You are SmartDoc, an Excel, CSV, and Word editing agent. Use only the supplied tools; never invent file IDs. "
             "Use the file summaries to resolve references. Ask a short clarifying question if the target or meaning is ambiguous. "
+            "When revising a draft you just generated, target the generated file identified in the conversation. "
             "Call tools to make requested changes, then report what changed in plain language. Do not claim a change unless a tool succeeded. "
             "Interpret the user's target precisely before selecting a tool: numeric row ranges such as 'delete rows 5-7' mean delete_rows with rows '5:7'. "
             "Excel-letter ranges such as 'delete columns I-L' mean delete_columns with columns 'I:L'. Letters always refer to columns, even if the user accidentally says 'rows I-L'. "
@@ -289,6 +377,23 @@ def start_command(session, command: str) -> CommandContext:
             "For Word documents, inspect with word_read_document before editing. Word paragraph, table, row, and column indexes are zero-based."
             " When asked to combine Word documents into a new file, use word_merge_documents with their file IDs in the requested order; create a separate output and do not ask whether the user wants a new file. Do not ask the user to identify embedded objects during a merge; the merge tool copies embedded package parts when possible, and any remaining failure must be explained using the concrete tool error."
     )
+    if output_format:
+        system_content = (f"Create a new .{output_format} file from the user's brief. "
+                          "Call the supplied tool once with the complete content. Respect requested length and structure.")
+        page_limit = generation.requested_page_limit(command) if output_format == "docx" else None
+        if page_limit is not None:
+            system_content += (f" The pages array must contain at most {page_limit} entries. "
+                               "Combine topics in the same entry. Keep each entry below 1200 characters.")
+    elif tool_group == "create":
+        system_content = ("You are SmartDoc. To create a Word document or Excel workbook, call the corresponding "
+                          "creation tool once with the finished content. Respect the requested topic, format and length. "
+                          "No upload is needed. If the user asks to edit a missing source, ask them to upload it. "
+                          "For a question or clarification, reply directly.")
+    elif tool_group == "template":
+        system_content = ("Draft a new Word file using the named template. Use the supplied summaries to select "
+                          "its file ID, match exact source text, and preserve its structure. Add styled paragraphs "
+                          "if more space is needed. Call draft_from_template once with the finished content. "
+                          "Ask which file to use if the template is ambiguous.")
     current_request = f"Current files and summaries:\n{json.dumps(summaries, ensure_ascii=False, default=str)}\n\nUser: {command}"
     messages = [{"role": "system", "content": system_content}, *history,
                 {"role": "user", "content": current_request}]
@@ -297,11 +402,14 @@ def start_command(session, command: str) -> CommandContext:
         "prior_chat_history": sum(len(json.dumps(message, ensure_ascii=False, default=str)) for message in history),
         "current_files_and_command": len(current_request),
     }
-    context = CommandContext(uuid.uuid4().hex, command, work_dir, list(session.current_file_ids),
+    context = CommandContext(uuid.uuid4().hex, command, work_dir, input_ids,
                              working_paths, messages, prompt_component_chars=prompt_component_chars,
                              initial_message_count=len(messages), tool_group=tool_group)
-    context.activity.append({"tool": "agent", "detail": "Reviewing file summaries and planning the command"})
-    context.activity.append({"tool": "router", "detail": f"Selected {tool_group} tools based on uploaded file types"})
+    if output_format:
+        context.activity.append({"tool": "agent", "detail": f"Generating a new .{output_format} file"})
+    else:
+        context.activity.append({"tool": "agent", "detail": "Reviewing file summaries and planning the command"})
+        context.activity.append({"tool": "router", "detail": f"Selected {tool_group} tools based on uploaded file types"})
     return context
 
 
@@ -324,6 +432,22 @@ def _path_for(context: CommandContext, file_id: str) -> Path:
 
 
 def _execute(name: str, args: dict[str, Any], context: CommandContext) -> Any:
+    if name in (*TOOL_GROUPS["create"], "draft_from_template"):
+        out_id = uuid.uuid4().hex
+        suffix = ".xlsx" if name == "create_workbook" else ".docx"
+        path = context.work_dir / f"{out_id}{suffix}"
+        if name == "draft_from_template":
+            generation.write_from_template(path, _path_for(context, args["file_id"]), args)
+        elif suffix == ".docx":
+            generation.write_document(path, args, context.command)
+        else:
+            generation.write_workbook(path, args)
+        title = re.sub(r'[^\w -]+', '', args["title"]).strip()[:100] or "Untitled"
+        context.generated_names[out_id] = title + suffix
+        context.generated_ids.append(out_id)
+        context.working_paths[out_id] = path
+        context.activity.append({"tool": name, "detail": f"Created {title}{suffix}"})
+        return title + suffix
     if name == "word_merge_documents":
         ids = args.get("file_ids") or []
         if len(ids) < 2:
@@ -805,12 +929,6 @@ def _message_dict(message) -> dict[str, Any]:
     return message.to_dict()
 
 
-def _request(client: Groq, model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]]):
-    return client.chat.completions.create(model=model, messages=messages, tools=tools,
-                                          tool_choice="auto", temperature=0,
-                                          max_completion_tokens=1200)
-
-
 def _request_component_chars(context: CommandContext) -> dict[str, int]:
     component_chars = dict(context.prompt_component_chars)
     loop_messages = context.messages[context.initial_message_count:]
@@ -851,7 +969,18 @@ def _recover_malformed_clear_call(error: Exception, command: str) -> dict[str, A
 
 
 def run_loop(session, context: CommandContext, *, confirmed: bool = False) -> dict[str, Any]:
-    client, model = _groq_client()
+    complete, model = _model_client()
+    available_tools = tools_for(context.tool_group)
+    tool_choice = "auto"
+    if context.tool_group in {"docx", "xlsx"}:
+        available_tools = deepcopy(available_tools)
+        function = available_tools[0]["function"]
+        tool_choice = {"type": "function", "function": {"name": function["name"]}}
+        if context.tool_group == "docx":
+            pages = function["parameters"]["properties"]["pages"]
+            limit = generation.requested_page_limit(context.command)
+            if limit is not None and limit > 0:
+                pages["maxItems"] = limit
     if confirmed and context.pending_call:
         call = context.pending_call
         args = json.loads(call["arguments"])
@@ -861,11 +990,14 @@ def run_loop(session, context: CommandContext, *, confirmed: bool = False) -> di
         context.pending_call = None
     for turn in range(1, MAX_TOOL_TURNS + 1):
         component_chars = _request_component_chars(context)
+        started = time.perf_counter()
         try:
-            response = _request(client, model, context.messages, tools_for(context.tool_group))
+            response = complete(model=model, messages=context.messages, tools=available_tools,
+                                tool_choice=tool_choice, temperature=0, max_completion_tokens=6000 if context.tool_group in {"create", "template", "docx", "xlsx"} else 1200)
         except Exception as exc:
             context.usage_records.append(groq_usage.record_failure(
                 model=model, phase="command", component_chars=component_chars, turn=turn,
+                elapsed_seconds=time.perf_counter() - started,
                 operation_id=context.command_id,
             ))
             args = _recover_malformed_clear_call(exc, context.command)
@@ -887,6 +1019,7 @@ def run_loop(session, context: CommandContext, *, confirmed: bool = False) -> di
                     "usage": groq_usage.summarize(context.usage_records)}
         context.usage_records.append(groq_usage.record_success(
             response=response, model=model, phase="command",
+            elapsed_seconds=time.perf_counter() - started,
             component_chars=component_chars, turn=turn, operation_id=context.command_id,
         ))
         message = response.choices[0].message
@@ -894,6 +1027,8 @@ def run_loop(session, context: CommandContext, *, confirmed: bool = False) -> di
         context.messages.append(serialized)
         calls = serialized.get("tool_calls") or []
         if not calls:
+            if context.tool_group in {"docx", "xlsx"}:
+                raise RuntimeError("The model returned text without generating the requested file. Please try again.")
             return _commit_result(session, context, message.content or "Done.")
         if len(calls) > 1:
             for call in calls:
@@ -921,6 +1056,8 @@ def run_loop(session, context: CommandContext, *, confirmed: bool = False) -> di
                         "activity": context.activity,
                         "usage": groq_usage.summarize(context.usage_records)}
             result = _execute(name, args, context)
+            if name in (*TOOL_GROUPS["create"], "draft_from_template"):
+                break
             content = _json_value(result)
             if isinstance(content, dict) and content.get("truncated"):
                 content["note"] = "Output limited to the first 50 matching/data rows plus header. Request a smaller range for more."
@@ -930,7 +1067,9 @@ def run_loop(session, context: CommandContext, *, confirmed: bool = False) -> di
             context.activity.append({"tool": name, "detail": f"Tool error: {exc}"})
             context.messages.append({"role": "tool", "tool_call_id": call["id"], "name": name,
                                      "content": json.dumps({"error": str(exc)})})
-    raise RuntimeError("The agent reached its tool-call limit before completing the command")
+    else:
+        raise RuntimeError("The agent reached its tool-call limit before completing the command")
+    return _commit_result(session, context, f"Created {result}.")
 
 
 def _commit_result(session, context: CommandContext, summary: str) -> dict[str, Any]:
@@ -957,8 +1096,8 @@ def _commit_result(session, context: CommandContext, summary: str) -> dict[str, 
         suffix = temp_path.suffix.lower()
         output_path = session.directory / f"{new_id}{suffix}"
         shutil.copy2(temp_path, output_path)
-        output = type(next(iter(session.files.values())))(new_id, f"merged{suffix}", output_path,
-                                                        output_path.stat().st_size, True)
+        output = SessionFile(new_id, context.generated_names.get(generated_id, f"merged{suffix}"),
+                             output_path, output_path.stat().st_size, True)
         session.files[new_id] = output
         created.append(new_id)
         generated_outputs.append(new_id)
